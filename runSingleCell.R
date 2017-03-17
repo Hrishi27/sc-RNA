@@ -33,6 +33,18 @@ cellstats = data.frame(cell = colnames(mycountFrame), total_counts = colSums(myc
 
 print(cellstats)
 
+ggplot(cellstats, aes(cell, total_counts)) + geom_bar(stat = "identity") + facet_wrap(~group, 
++     scales = "free_x") + theme(axis.text.x = element_text(angle = 90, hjust = 1, 
++     size = 8), text = element_text(family = "Gill Sans")) + xlab("") + ylab("total counts")
+
+
+ggplot(cellstats, aes(cell, genes_detected)) + geom_bar(stat = "identity") + 
++     facet_wrap(~group, scales = "free_x") + theme(axis.text.x = element_text(angle = 90, 
++     hjust = 1, size = 8), text = element_text(family = "Gill Sans")) + xlab("") + 
++     ylab("genes detected")
+
+
+
 #######
 
 umi <- newSCESet(
