@@ -2,6 +2,7 @@ library("data.table")
 library("ggplot2")
 library("DESeq2")
 library("matrixStats")
+library(cowplot)
 
 pdf("Rplots.pdf", height=10,width=12)
 
@@ -39,37 +40,36 @@ plotStatistics <- function(Frame,string){
     }
  }
 
- # WellAD <- plotStatistics(StatsCell[1:26,],"count")
- # WellEF <- plotStatistics(StatsCell[27:50,],"count")
- # WellGH <- plotStatistics(StatsCell[51:74,],"count")
+ WellAD <- plotStatistics(StatsCell[1:26,],"count")
+ WellEF <- plotStatistics(StatsCell[27:50,],"count")
+ WellGH <- plotStatistics(StatsCell[51:74,],"count")
 
- # GeneAD <- plotStatistics(StatsCell[1:26,],"genes")
- # GeneEF <- plotStatistics(StatsCell[27:50,],"genes")
- # GeneGH <- plotStatistics(StatsCell[51:74,],"genes")
+ GeneAD <- plotStatistics(StatsCell[1:26,],"genes")
+ GeneEF <- plotStatistics(StatsCell[27:50,],"genes")
+ GeneGH <- plotStatistics(StatsCell[51:74,],"genes")
+
+plot_grid(WellAD,WellEF,WellGH,ncol = 1,align="hv")
+plot_grid(GeneAD,GeneEF,GeneGH,ncol = 1,align="hv")
 
 
+dds = DESeqDataSetFromMatrix(countData = mycountFrame, colData = mysortedPheno, design = ~Status)
+transformedData = varianceStabilizingTransformation(dds)
 
-# Status <- mysortedPheno$Status
-# design = ~Status
-# dds = DESeqDataSetFromMatrix(countData = mycountFrame, colData = mysortedPheno, design = design)
-# transformedData = varianceStabilizingTransformation(dds)
-
-# #### Library Complexity #####
-
-# libCom <- ggplot(StatsCell,aes(total_counts,total_genes)) + geom_point()
 
 # ####### PCA of top500 genes #####
 
-# rv <- rowVars(assay(transformedData))
-# select <- order(rv, decreasing=T)[seq_len(min(1000,length(rv)))]
-# pc <- prcomp(t(assay(transformedData)[select,]))
+rv <- rowVars(assay(transformedData))
+select <- order(rv, decreasing=T)[seq_len(min(500,length(rv)))]
+pc <- prcomp(t(assay(transformedData)[select,]))
 
 # # set condition
-# condition <- Status
-# P_type <- patient_status
-# scores <- data.frame(pc$x, condition)
+condition <- mysortedPheno$Status
+P_type <- patient_status
+scores <- data.frame(pc$x, condition)
 
-# pcaplot <- ggplot(scores, aes(x = PC1, y = PC2, col = (factor(condition)),shape=factor(P_type))) + geom_point(size = 2) + ggtitle("Principal Components") 
+pcaplot <- ggplot(scores, aes(x = PC1, y = PC2, col = (factor(condition)),shape=factor(P_type))) + geom_point(size = 2) + ggtitle("Principal Components") 
+
+plot(pcaplot)
 
 MSPhenoData <- subset(mysortedPheno,grepl("^MS",SampleName))
 HCPhenoData <- subset(mysortedPheno,grepl("^HC",SampleName))
@@ -97,66 +97,95 @@ processPCA <- function(object){
 }
 
 
-### MS Analysis
-MSdds = DESeqDataSetFromMatrix(countData = FilteredMS, colData = MSPhenoData,design=~Status)
 
-###PCA analysis
+### Dropping samples "C"
 
-MS_PCA <- processPCA(MSdds)
-condition <- MSPhenoData$Status
-scores <- data.frame(MS_PCA$x, condition)
-pcaplot <- ggplot(scores, aes(x = PC1, y = PC2, col = (factor(condition)))) + geom_point(size = 2) + ggtitle("Principal Components") 
-print(pcaplot)
+filterPheno <- subset(mysortedPheno,!(grepl("C$",SampleName)))
 
-#### Collapse and DGE
-MSddsColl <- collapseReplicates(MSdds, MSdds$SampleName, MSdds$Well)
-MSddsColl=estimateSizeFactors(MSddsColl) 
-MSddsColl=DESeq(MSddsColl,test = "LRT", reduced = ~ 1)
-plotDispEsts(MSddsColl)
-MSgroupComp <- results(MSddsColl)
-MSgroupComp <- MSgroupComp[order(MSgroupComp$pvalue),]
-plotMA_full(MSgroupComp)
-print(MSgroupComp)
-write.csv(MSgroupComp,'MSgroupComp.csv')
+filterPheno$cond <- ifelse (grepl("^MS",filterPheno$SampleName),"MS","HC")
+
+filterData <- mycountFrame[,as.character(filterPheno$Well)]
+
+filterData <- filterData[rowSums(filterData) > 0,]
+
+filterPheno$SampleName <- droplevels(filterPheno$SampleName)
+
+filterdds = DESeqDataSetFromMatrix(countData = filterData, colData = filterPheno ,design=~Status+cond+Status:cond)
+
+filterddsColl <- collapseReplicates(filterdds, filterdds$SampleName, filterdds$Well)
+
+filterddsColl=estimateSizeFactors(filterddsColl) 
+
+filterddsColl=DESeq(filterddsColl,test = "LRT", reduced = ~Status+cond)
+
+groupComp <- results(filterddsColl)
+
+groupComp <- groupComp[order(groupComp$pvalue),]
+
+print(groupComp)
+
+#### MS Analysis
+ MSdds = DESeqDataSetFromMatrix(countData = FilteredMS, colData = MSPhenoData,design=~Status)
+
+ ###PCA analysis
+
+ MS_PCA <- processPCA(MSdds)
+ condition <- MSPhenoData$Status
+ scores <- data.frame(MS_PCA$x, condition)
+ pcaplot <- ggplot(scores, aes(x = PC1, y = PC2, col = (factor(condition)))) + geom_point(size = 2) + ggtitle("Principal Components MS only") 
+ print(pcaplot)
+
+##### Collapse and DGE
+#MSddsColl <- collapseReplicates(MSdds, MSdds$SampleName, MSdds$Well)
+#MSddsColl=estimateSizeFactors(MSddsColl) 
+#MSddsColl=DESeq(MSddsColl,test = "LRT", reduced = ~ 1)
+# plotDispEsts(MSddsColl)
+#MSgroupComp <- results(MSddsColl)
+# MSgroupComp <- MSgroupComp[order(MSgroupComp$pvalue),]
+# plotMA_full(MSgroupComp)
+# print(MSgroupComp)
+# write.csv(MSgroupComp,'MSgroupComp.csv')
 
 
-### HC Analysis
+#### HC Analysis
 
 HCdds = DESeqDataSetFromMatrix(countData = FilteredHC, colData = HCPhenoData,design=~Status)
 
-###PCA analysis
+####PCA analysis
 
-HC_PCA <- processPCA(HCdds)
-condition <- HCPhenoData$Status
-scores <- data.frame(HC_PCA$x, condition)
-pcaplot <- ggplot(scores, aes(x = PC1, y = PC2, col = (factor(condition)))) + geom_point(size = 2) + ggtitle("Principal Components") 
-print(pcaplot)
+ HC_PCA <- processPCA(HCdds)
+ condition <- HCPhenoData$Status
+ scores <- data.frame(HC_PCA$x, condition)
+ pcaplot <- ggplot(scores, aes(x = PC1, y = PC2, col = (factor(condition)))) + geom_point(size = 2) + ggtitle("Principal Components HC only") 
+ print(pcaplot)
 
-#### Collapse/combine samples
-HCddsColl <- collapseReplicates(HCdds, HCdds$SampleName, HCdds$Well)
-CombinedObj <- HCddsColl
-HCddsColl=estimateSizeFactors(HCddsColl)
-HCddsColl=DESeq(HCddsColl,test = "LRT", reduced = ~ 1)
-plotDispEsts(HCddsColl)
-HCgroupComp <- results(HCddsColl)
-HCgroupComp <- HCgroupComp[order(HCgroupComp$pvalue),]
-write.csv(HCgroupComp,'HCgroupComp.csv')
+# #### Collapse/combine samples
+# HCddsColl <- collapseReplicates(HCdds, HCdds$SampleName, HCdds$Well)
+# CombinedObj <- HCddsColl
+# HCddsColl=estimateSizeFactors(HCddsColl)
+# HCddsColl=DESeq(HCddsColl,test = "LRT", reduced = ~ 1)
+# plotDispEsts(HCddsColl)
+# HCgroupComp <- results(HCddsColl)
+# HCgroupComp <- HCgroupComp[order(HCgroupComp$pvalue),]
+# write.csv(HCgroupComp,'HCgroupComp.csv')
 
-### Time point Analysis
+# ### Time point Analysis
 
-HCPhenoData$SampleName <- droplevels(HCPhenoData$SampleName)
-#HCPhenoData$Status:SampleName <- factor(paste(HCPhenoData$Status,HCPhenoData$SampleName,sep=":"))
+# HCPhenoData$SampleName <- droplevels(HCPhenoData$SampleName)
+# #HCPhenoData$Status:SampleName <- factor(paste(HCPhenoData$Status,HCPhenoData$SampleName,sep=":"))
 
-countHC <- assay(CombinedObj)
-pData <- colData(CombinedObj)
-pData$SampleName <- droplevels(pData$SampleName)
-print(data.frame(pData[c(1,2,6)]))
-HCddsColl = DESeqDataSetFromMatrix(countData = countHC, colData = pData,design= ~ Status + Status:SampleName)
-#HCddsColl <- collapseReplicates(HCdds, HCdds$SampleName, HCdds$Well)
-#HCddsColl=estimateSizeFactors(HCddsColl)
-#HCddsColl=DESeq(HCddsColl,test="LRT", reduced = ~ Status + SampleName)
+# countHC <- data.frame(assay(CombinedObj))
+# write.csv(countHC,file="countHC.csv")
+# pData <- colData(CombinedObj)
+# pData$SampleName <- droplevels(pData$SampleName)
+# write.csv(data.frame(pData[c(1,2,6)]),file="HCPhenoData.csv") 
 
-#print(HCddsColl)
+# HCddsColl = DESeqDataSetFromMatrix(countData = countHC, colData = pData,design= ~ Status+SampleName + Status:SampleName)
+# #HCddsColl <- collapseReplicates(HCdds, HCdds$SampleName, HCdds$Well)
+# #HCddsColl=estimateSizeFactors(HCddsColl)
+# #HCddsColl=DESeq(HCddsColl,test="LRT", reduced = ~ Status + SampleName)
+
+# #print(HCddsColl)
 
 
 
