@@ -3,6 +3,7 @@ library("ggplot2")
 library("DESeq2")
 library("matrixStats")
 library(cowplot)
+library("pheatmap")
 
 pdf("Rplots.pdf", height=10,width=12)
 
@@ -28,6 +29,8 @@ patient_status <- ifelse(grepl("MS",mysortedPheno$SampleName),'MS','HC')
 ### Individual cell Statistics ####
 
 StatsCell <- data.frame(Well= colnames(mycountFrame), total_counts = colSums(mycountFrame), total_genes = colSums(mycountFrame > 0))
+
+print(StatsCell)
 
 plotStatistics <- function(Frame,string){
     if(string=='count'){
@@ -104,25 +107,49 @@ filterPheno <- subset(mysortedPheno,!(grepl("C$",SampleName)))
 
 filterPheno$cond <- ifelse (grepl("^MS",filterPheno$SampleName),"MS","HC")
 
+filterPheno <- filterPheno[order(filterPheno$cond),]
+
 filterData <- mycountFrame[,as.character(filterPheno$Well)]
 
 filterData <- filterData[rowSums(filterData) > 0,]
 
 filterPheno$SampleName <- droplevels(filterPheno$SampleName)
 
-filterdds = DESeqDataSetFromMatrix(countData = filterData, colData = filterPheno ,design=~Status+cond+Status:cond)
+filterdds = DESeqDataSetFromMatrix(countData = filterData, colData = filterPheno ,design=~cond+Status+cond:Status)
 
 filterddsColl <- collapseReplicates(filterdds, filterdds$SampleName, filterdds$Well)
 
 filterddsColl=estimateSizeFactors(filterddsColl) 
 
-filterddsColl=DESeq(filterddsColl,test = "LRT", reduced = ~Status+cond)
+filterddsColl=DESeq(filterddsColl,test = "LRT", reduced = ~cond+Status)
+
+print(resultsNames(filterddsColl))
 
 groupComp <- results(filterddsColl)
 
-groupComp <- groupComp[order(groupComp$pvalue),]
+groupComp <- groupComp[order(groupComp$padj),]
 
 print(groupComp)
+
+#cond_MS_vs_HC <- results(filterddsColl, name="cond_MS_vs_HC", test="Wald")
+
+#Status_ON.VSL3_vs_Baseline <- results(filterddsColl, name="Status_ON.VSL3_vs_Baseline", test="Wald")
+
+betas <- coef(filterddsColl)
+colnames(betas)
+
+topGenes <- head(order(groupComp$padj),20)
+mat <- betas[topGenes, -c(1,2)]
+thr <- 3 
+mat[mat < -thr] <- -thr
+mat[mat > thr] <- thr
+pheatmap(mat, breaks=seq(from=-thr, to=thr, length=101),
+         cluster_col=FALSE)
+
+
+
+
+
 
 #### MS Analysis
  MSdds = DESeqDataSetFromMatrix(countData = FilteredMS, colData = MSPhenoData,design=~Status)
